@@ -1,7 +1,7 @@
 import asyncio
 import base64
-import json
 
+import msgpack
 import websockets
 
 
@@ -17,14 +17,14 @@ class Server:
 
         data_message = {
             'type': data_type,
-            'data': base64.b64encode(data).decode()
+            'data': base64.b85encode(data).decode()
         }
 
         if salt is not None:
-            data_message['salt'] = base64.b64encode(salt).decode()
+            data_message['salt'] = base64.b85encode(salt).decode()
 
-        encoded_message = base64.b64encode(json.dumps(data_message).encode()).decode()
-        await websocket.send(encoded_message)
+        packed_message = msgpack.packb(data_message)
+        await websocket.send(packed_message)
 
     async def handle_client(self, websocket, path):
         self.connected_clients.add(websocket)
@@ -34,37 +34,43 @@ class Server:
             async for message in websocket:
                 print("Message received")
 
-                decoded_message = base64.b64decode(message)
-                message_data = json.loads(decoded_message)
+                try:
+                    message_data = msgpack.unpackb(message)
 
-                if message_data['type'] == 'key':
-                    received_key = base64.b64decode(message_data['data'])
-                    received_salt = base64.b64decode(message_data['salt'])
+                    if message_data['type'] == 'key':
+                        received_key = base64.b85decode(message_data['data'])
+                        received_salt = base64.b85decode(message_data['salt'])
 
-                    print(f"Received key {received_key} with salt {received_salt}\n")
+                        print(f"Received key {received_key} with salt {received_salt}\n")
 
-                    if self.saved_key is None and self.saved_salt is None:
-                        self.saved_key = received_key
-                        self.saved_salt = received_salt
-                    else:
-                        await self.send_data(websocket, self.saved_key, "key", received_salt + self.saved_salt)
+                        if self.saved_key is None and self.saved_salt is None:
+                            self.saved_key = received_key
+                            self.saved_salt = received_salt
+                        else:
+                            await self.send_data(websocket, self.saved_key, "key", received_salt + self.saved_salt)
+
+                            for client in self.connected_clients:
+                                if client != websocket:
+                                    await self.send_data(client, received_key, "key", received_salt + self.saved_salt)
+
+                    elif message_data['type'] == 'message':
+                        received_message = base64.b85decode(message_data['data'])
+
+                        if len(self.connected_clients) < 2:
+                            print("Waiting for the other client to connect")
+                            continue
 
                         for client in self.connected_clients:
                             if client != websocket:
-                                await self.send_data(client, received_key, "key", received_salt + self.saved_salt)
+                                await self.send_data(client, received_message, "message")
+                    else:
+                        print("Invalid message type")
 
-                elif message_data['type'] == 'message':
-                    received_message = base64.b64decode(message_data['data'])
+                except Exception as e:
+                    print(f"Error processing message: {str(e)}")
 
-                    if len(self.connected_clients) < 2:
-                        print("Waiting for the other client to connect")
-                        continue
-
-                    for client in self.connected_clients:
-                        if client != websocket:
-                            await self.send_data(client, received_message, "message")
-                else:
-                    print("Invalid message type")
+        except Exception as e:
+            print(f"Error in client connection: {str(e)}")
 
         finally:
             self.connected_clients.remove(websocket)
