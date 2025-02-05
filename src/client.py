@@ -431,7 +431,7 @@ class ClientGUI(QtWidgets.QMainWindow):
 
 
 async def run_client_gui() -> None:
-    ulterior = Ulterior("ws://192.168.50.254:4448")
+    ulterior = Ulterior("ws://37.120.189.78:4448")
     await ulterior.connect()
     gui = ClientGUI(ulterior)
     gui.show()
