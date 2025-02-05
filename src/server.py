@@ -15,13 +15,10 @@ class Server:
     async def send_data(websocket, data, data_type, salt=None):
         print(f"Sending [{data_type}]: {data}\n")
 
-        data_message = {
-            'type': data_type,
-            'data': base64.b85encode(data).decode()
-        }
+        data_message = {"type": data_type, "data": base64.b85encode(data).decode()}
 
         if salt is not None:
-            data_message['salt'] = base64.b85encode(salt).decode()
+            data_message["salt"] = base64.b85encode(salt).decode()
 
         packed_message = msgpack.packb(data_message)
         await websocket.send(packed_message)
@@ -37,24 +34,36 @@ class Server:
                 try:
                     message_data = msgpack.unpackb(message)
 
-                    if message_data['type'] == 'key':
-                        received_key = base64.b85decode(message_data['data'])
-                        received_salt = base64.b85decode(message_data['salt'])
+                    if message_data["type"] == "key":
+                        received_key = base64.b85decode(message_data["data"])
+                        received_salt = base64.b85decode(message_data["salt"])
 
-                        print(f"Received key {received_key} with salt {received_salt}\n")
+                        print(
+                            f"Received key {received_key} with salt {received_salt}\n"
+                        )
 
                         if self.saved_key is None and self.saved_salt is None:
                             self.saved_key = received_key
                             self.saved_salt = received_salt
                         else:
-                            await self.send_data(websocket, self.saved_key, "key", received_salt + self.saved_salt)
+                            await self.send_data(
+                                websocket,
+                                self.saved_key,
+                                "key",
+                                received_salt + self.saved_salt,
+                            )
 
                             for client in self.connected_clients:
                                 if client != websocket:
-                                    await self.send_data(client, received_key, "key", received_salt + self.saved_salt)
+                                    await self.send_data(
+                                        client,
+                                        received_key,
+                                        "key",
+                                        received_salt + self.saved_salt,
+                                    )
 
-                    elif message_data['type'] == 'message':
-                        received_message = base64.b85decode(message_data['data'])
+                    elif message_data["type"] == "message":
+                        received_message = base64.b85decode(message_data["data"])
 
                         if len(self.connected_clients) < 2:
                             print("Waiting for the other client to connect")
@@ -62,7 +71,9 @@ class Server:
 
                         for client in self.connected_clients:
                             if client != websocket:
-                                await self.send_data(client, received_message, "message")
+                                await self.send_data(
+                                    client, received_message, "message"
+                                )
                     else:
                         print("Invalid message type")
 

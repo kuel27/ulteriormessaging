@@ -9,7 +9,7 @@ import websockets
 from argon2 import PasswordHasher
 from argon2.exceptions import HashingError
 from cryptography.exceptions import InvalidTag
-from cryptography.hazmat.primitives import hashes
+from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric.ed448 import Ed448PrivateKey
 from cryptography.hazmat.primitives.asymmetric.x448 import X448PrivateKey
 from cryptography.hazmat.primitives.asymmetric.x448 import X448PublicKey
@@ -19,7 +19,6 @@ from cryptography.hazmat.primitives.kdf.hkdf import HKDF
 
 
 class Ulterior:
-
     def __init__(self, address):
         self.current_id = 0
         self.address = address
@@ -39,10 +38,16 @@ class Ulterior:
         try:
             x448_public, x448_private = self.generate_x448_key_pair()
             self.private_key = x448_private
+
+            x448_public_bytes = x448_public.public_bytes(
+                encoding=serialization.Encoding.Raw,
+                format=serialization.PublicFormat.Raw,
+            )
+
             message_data = {
-                'type': 'key',
-                'data': base64.b85encode(x448_public.public_bytes_raw()).decode(),
-                'salt': base64.b85encode(bytes(str(self.uid), "utf-8")).decode(),
+                "type": "key",
+                "data": base64.b85encode(x448_public_bytes).decode(),
+                "salt": base64.b85encode(bytes(str(self.uid), "utf-8")).decode(),
             }
             packed_data = msgpack.packb(message_data)
             await self.websocket.send(packed_data)
@@ -60,8 +65,8 @@ class Ulterior:
                 return
 
             message_data = {
-                'type': 'message',
-                'data': base64.b85encode(encrypted_message).decode()
+                "type": "message",
+                "data": base64.b85encode(encrypted_message).decode(),
             }
             packed_message = msgpack.packb(message_data)
             await self.websocket.send(packed_message)
@@ -79,20 +84,22 @@ class Ulterior:
                 received_message = await self.websocket.recv()
                 unpacked_data = msgpack.unpackb(received_message)
 
-                if unpacked_data['type'] == 'key':
-                    data = unpacked_data['data']
+                if unpacked_data["type"] == "key":
+                    data = unpacked_data["data"]
                     decoded_key = base64.b85decode(data)
                     peer_public_key = X448PublicKey.from_public_bytes(decoded_key)
                     shared_key = self.private_key.exchange(peer_public_key)
-                    salt = base64.b85decode(unpacked_data['salt'])
+                    salt = base64.b85decode(unpacked_data["salt"])
                     derived_key = self.derive_key(shared_key, salt, 32)
                     if not derived_key:
                         return
 
                     self.secret_key = derived_key
-                elif unpacked_data['type'] == 'message':
-                    decoded_data = base64.b85decode(unpacked_data['data'])
-                    decrypted_message = self.decrypt_message(decoded_data, self.secret_key)
+                elif unpacked_data["type"] == "message":
+                    decoded_data = base64.b85decode(unpacked_data["data"])
+                    decrypted_message = self.decrypt_message(
+                        decoded_data, self.secret_key
+                    )
                     print(f"\nreceived: {decrypted_message}")
             except Exception as e:
                 print(f"An error occurred: {str(e)}")
@@ -172,7 +179,7 @@ async def user_input(ulterior):
 
     while True:
         message = await asyncio.to_thread(input)
-        if message.lower() == 'exit':
+        if message.lower() == "exit":
             break
 
         msg_bytes = bytes(message, "utf-8")
